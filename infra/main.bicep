@@ -550,19 +550,7 @@ module backendRoleAzureAIDeveloperRG 'core/security/role.bicep' = {
     roleDefinitionId: '64702f94-c441-49e6-a78b-ef80e0188fee'
   }
 }
-// Cosmos DB Data Contributor role definition ID
-var cosmosDataContributorId = '00000000-0000-0000-0000-000000000002'
 
-resource cosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-11-15' = {
-  name: guid(apiIdentity.id, 'CosmosDbDataContributor')
-  // Ensure the parent points to your existing Cosmos DB account resource name
-  parent: cosmosAccount 
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', 'nino-cosmodb', cosmosDataContributorId)
-    principalId: apiIdentity.properties.principalId // Binds to your API Container app footprint
-    scope: cosmosAccount.id
-  }
-}
 
 output AZURE_RESOURCE_GROUP string = rg.name
 

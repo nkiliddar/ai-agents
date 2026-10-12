@@ -2,9 +2,18 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "environmentName": {
-      "value": "existing-resourceGroupName"
+        "environment": {
+      "value": "${AZURE_ENV_NAME}",
+      "metadata": {
+        "azd": {
+          "type": "environment",
+          "config": {
+            "propertyName": "envName"
+          }
+        }
+      }
     },
+
     "location": {
       "value": "eastus"
     },
@@ -148,16 +157,8 @@
     },
     "blobContainerName": {
       "value": "faqs"
-    },
-    "COSMOS_ENDPOINT": {
-      "value": "https://nino-cosmodb.documents.azure.com:443/"
-    },
-    "COSMOS_DATABASE_NAME": {
-      "value": "ChatDatabase"
-    },
-    "COSMOS_CONTAINER_NAME": {
-      "value": "HistoryContainer"
     }
+ 
     
   }
 }
