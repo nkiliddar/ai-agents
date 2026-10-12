@@ -29,6 +29,26 @@ from urllib.parse import quote
 
 
 from openai import AsyncOpenAI
+from azure.cosmos.aio import CosmosClient
+from azure.cosmos import PartitionKey
+
+# Load configuration from environment variables
+COSMOS_ENDPOINT = os.environ["COSMOS_ENDPOINT"]
+COSMOS_KEY = os.environ["COSMOS_KEY"]
+COSMOS_DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "ChatDatabase")
+COSMOS_CONTAINER_NAME = os.environ.get("COSMOS_CONTAINER_NAME", "HistoryContainer")
+
+# Create an async Cosmos Client
+cosmos_client = CosmosClient(COSMOS_ENDPOINT, credential=COSMOS_KEY)
+
+async def get_cosmos_container():
+    """Helper to get or create the Cosmos DB database and container."""
+    database = await cosmos_client.create_database_if_not_exists(id=COSMOS_DATABASE_NAME)
+    container = await database.create_container_if_not_exists(
+        id=COSMOS_CONTAINER_NAME,
+        partition_key=PartitionKey(path="/conversationid") # Use conversation_id as partition key for fast history queries
+    )
+    return container
 
 # Create a logger for this module
 logger = logging.getLogger("azureaiapp")
@@ -207,6 +227,28 @@ async def save_user_message_created_at(openai_client: AsyncOpenAI, conversation:
     except Exception as e:
         logger.error(f"Error updating message created_at.")
         
+async def save_chat_turn_to_cosmos(conversation_id: str, agent_id: str, user_message: str, assistant_response: str):
+    """
+    Saves a complete conversation turn to Azure Cosmos DB.
+    """
+    try:
+        container = await get_cosmos_container()
+        
+        # Structure the chat turn document
+        # Note: 'id' must be unique per document in Cosmos DB
+        chat_turn_document = {
+            "id": f"{conversation_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+            "conversation_id": conversation_id,
+            "agent_id": agent_id,
+            "user_message": user_message,
+            "assistant_response": assistant_response,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await container.upsert_item(body=chat_turn_document)
+        logger.info(f"Successfully archived conversation turn to Cosmos DB for ID: {conversation_id}")
+    except Exception as e:
+        logger.error(f"Failed to save chat turn to Cosmos DB: {e}", exc_info=True)
 
 
 async def get_result(
@@ -221,6 +263,8 @@ async def get_result(
         async with project_client.get_openai_client() as openai_client:
             logger.info(f"get_result invoked for conversation={conversation.id}")
             input_created_at = datetime.now(timezone.utc).timestamp()
+            assistant_response_accumulator = ""  # Track the assistant reply
+            
             try:
                 async with openai_client.responses.stream(
                     conversation=conversation.id,
@@ -233,15 +277,17 @@ async def get_result(
                     async for event in stream:
                         elapsed_ms = int((datetime.now(timezone.utc).timestamp() - stream_started_at) * 1000)
                         logger.info(f"[+{elapsed_ms}ms] event: {event.type}")
+                        
                         if event.type == "response.created":
                             logger.info(f"Stream response created with ID: {event.response.id}")
-                            # Emit an early "thinking" event so the browser flushes buffers
-                            # and can render a progress indicator during model reasoning.
                             yield serialize_sse_event({'content': '', 'type': "message"})
+                            
                         elif event.type == "response.output_text.delta":
                             logger.info(f"Delta: {event.delta}")
+                            assistant_response_accumulator += event.delta  # Accumulate the tokens
                             stream_data = {'content': event.delta, 'type': "message"}
                             yield serialize_sse_event(stream_data)
+                            
                         elif event.type == "response.output_item.done" and event.item.type == "message":
                             stream_data = await get_message_and_annotations(event.item)
                             stream_data['type'] = "completed_message"
@@ -258,10 +304,23 @@ async def get_result(
                     'type': "completed_message"
                 }
                 yield serialize_sse_event(error_data)
+                
             finally:
                 stream_data = {'type': "stream_end"}
+                yield serialize_sse_event(stream_data)
+                
+                # Execute parallel tracking saves
                 await save_user_message_created_at(openai_client, conversation, input_created_at)
-                yield serialize_sse_event(stream_data)           
+                
+                # Save complete interaction history directly to Cosmos DB
+                if assistant_response_accumulator:
+                    await save_chat_turn_to_cosmos(
+                        conversation_id=conversation.id,
+                        agent_id=agent.id,
+                        user_message=user_message,
+                        assistant_response=assistant_response_accumulator
+                    )
+           
 
 
 

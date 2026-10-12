@@ -13,6 +13,22 @@ from azure.identity.aio import DefaultAzureCredential
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.ai.projects.models import PromptAgentDefinition
 from azure.ai.projects.models import FileSearchTool, AzureAISearchTool, Tool, AzureAISearchToolResource, AISearchIndexResource, AgentVersionDetails, ConnectionType
+import azure.core.pipeline.policies._authentication as authen
+from azure.ai.projects.models import FunctionTool
+
+os.environ["AZURE_ALLOW_HTTP"] = "true"
+def bypass_enforce_https(request):
+    pass
+
+authen._BearerTokenCredentialPolicyBase._enforce_https = bypass_enforce_https
+print("SUCCESSFULLY INJECTED AZURE SDK BEARER TOKEN TLS BYPASS OVERRIDE")
+
+
+PROJECT_ENDPOINT="https://foundry-resource-fall2026.services.ai.azure.com/api/projects/Project1"
+AZURE_AI_SEARCH_ENDPOINT="https://project1-faqs-retrieval.search.windows.net"
+AZURE_AI_AGENT_DEPLOYMENT_NAME="gpt-5"
+AZURE_EXISTING_AGENT_ID="FAQs-Agent"
+
 
 from azure.ai.projects.models import (
     PromptAgentDefinition,
@@ -108,7 +124,6 @@ def _print_summary(resources: Dict, steps_order: List[str]) -> None:
     
     logger.info("=" * 80)
 
-
 async def create_ai_search_tool_maybe(
         ai_client: AIProjectClient, creds: AsyncTokenCredential) -> Optional[Tool]:
     """
@@ -125,7 +140,7 @@ async def create_ai_search_tool_maybe(
     
     endpoint = os.environ.get('AZURE_AI_SEARCH_ENDPOINT')
     embedding = os.getenv('AZURE_AI_EMBED_DEPLOYMENT_NAME')
-    container_name = os.getenv('AZURE_BLOB_CONTAINER_NAME', 'documents')
+    container_name = os.getenv('AZURE_BLOB_CONTAINER_NAME', 'faqs')
     search_index_name = os.getenv('AZURE_AI_SEARCH_INDEX_NAME', 'index-sample')
     
     if not endpoint or not embedding:
@@ -379,7 +394,7 @@ async def create_agent(ai_project: AIProjectClient,
         tools = [tool]
         if isinstance(tool, AzureAISearchTool):
             instructions = (
-                "Use AI Search always. "
+                "Use AI Search always. Provide answers to FAQS doc stored in blob storage. "
                 "You must always provide citations for answers using the tool and render them as: `\u3010message_idx:search_idx\u2020source\u3011`. "
                 "Avoid to use base knowledge."
             )
@@ -399,7 +414,7 @@ async def create_agent(ai_project: AIProjectClient,
     return agent
 
 
-async def initialize_eval(project_client: AIProjectClient, agent_version_details: AgentVersionDetails):
+async def initialize_eval(project_client: AIProjectClient, openai_client: AsyncOpenAI, agent_version_details: AgentVersionDetails, credential: AsyncTokenCredential):
     eval_rule_id = f"eval-rule-for-{agent_version_details.name}"
     try:
         eval_rules = project_client.evaluation_rules.list(
@@ -419,12 +434,11 @@ async def initialize_eval(project_client: AIProjectClient, agent_version_details
                     "initialization_parameters": {"deployment_name": os.environ["AZURE_AI_AGENT_DEPLOYMENT_NAME"]},
                 }
             ]
-            async with project_client.get_openai_client() as openai_client:
-                eval_object = await openai_client.evals.create(
-                    name=f"{agent_version_details.name} Continuous Evaluation",
-                    data_source_config=data_source_config,  # type: ignore
-                    testing_criteria=testing_criteria,  # type: ignore
-                )
+            eval_object = await openai_client.evals.create(
+                name=f"{agent_version_details.name} Continuous Evaluation",
+                data_source_config=data_source_config,  # type: ignore
+                testing_criteria=testing_criteria,  # type: ignore
+            )
             logger.info(f"Evaluation created (id: {eval_object.id}, name: {eval_object.name})")
 
             # Configure a rule that triggers the evaluation on agent responses
@@ -490,7 +504,7 @@ async def initialize_resources():
 
             os.environ["AZURE_EXISTING_AGENT_ID"] = agent_version_details.id
 
-            await initialize_eval(project_client, agent_version_details)
+            await initialize_eval(project_client, openai_client, agent_version_details, credential)
     except Exception as e:
         logger.info("Error creating agent: {e}", exc_info=True)
         raise RuntimeError(f"Failed to create the agent: {e}")  

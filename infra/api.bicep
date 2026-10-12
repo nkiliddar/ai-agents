@@ -23,10 +23,13 @@ param blobContainerName string = ''
 param useAzureAISearch bool = false
 param useStorageAccount bool = true
 
+@description('Extra environment variables passed from main.bicep')
+param extraEnv array = []
 resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: location
 }
+
 
 var baseEnv = [
   {
@@ -108,15 +111,16 @@ var storageEnv = [
     name: 'USE_STORAGE_ACCOUNT'
     value: string(useStorageAccount)
   }
+
 ]
 
-var env = concat(baseEnv, useStorageAccount ? storageEnv : [
+var calculatedEnv = concat(baseEnv, useStorageAccount ? storageEnv : [
   {
     name: 'USE_STORAGE_ACCOUNT'
     value: string(useStorageAccount)
   }
 ])
-
+var env = concat(calculatedEnv, extraEnv)
 
 
 module app 'core/host/container-app-upsert.bicep' = {

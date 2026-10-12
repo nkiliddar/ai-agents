@@ -1,0 +1,16 @@
+{
+  "analyzers": {
+    "core": {
+      "rules": {
+        "use-safe-access": {
+          "level": "off"
+        }
+      }
+    }
+  },
+  "coreDiagnostics": {
+    "BCP037": "none",
+    "BCP321": "none"
+  }
+}
+

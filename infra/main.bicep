@@ -2,8 +2,19 @@ targetScope = 'subscription'
 
 @minLength(1)
 @maxLength(64)
+@allowed([
+  'AzureCloud'
+  'AzureChinaCloud'
+  'AzureUSGovernment'
+])
+param cloudEnvironment string = 'AzureCloud'
 @description('Name of the the environment which is used to generate a short unique hash used in all resources.')
-param environmentName string
+param environment string
+var environmentName = environment
+// Ensure this exists near the top of your parameters/variables section in main.bicep
+var containerAppsEnvironmentName = !empty(environmentName) ? '${abbrs.appManagedEnvironments}${resourceToken}' : ''
+
+
 
 @description('Location for all resources. The default builtin.violence continuous evaluator is supported only in East US 2, North Central US, France Central, Sweden Central, Switzerland West, Germany West Central, and Australia East. Evaluation runs fail in other regions.')
 // Based on the model, creating an agent is not supported in all regions. 
@@ -26,20 +37,20 @@ param environmentName string
     ]
   }
 })
-param location string
+param location string 
 
 @description('Use this parameter to use an existing AI project resource ID')
-param azureExistingAIProjectResourceId string = ''
+param azureExistingAIProjectResourceId string 
 @description('The Azure resource group where new resources will be deployed')
-param resourceGroupName string = ''
+param resourceGroupName string 
 @description('The Microsoft Foundry Hub resource name. If ommited will be generated')
-param aiProjectName string = ''
+param aiProjectName string 
 @description('The application insights resource name. If ommited will be generated')
-param applicationInsightsName string = ''
+param applicationInsightsName string 
 @description('The AI Services resource name. If ommited will be generated')
-param aiServicesName string = ''
+param aiServicesName string 
 @description('The Azure Search resource name. If ommited will be generated')
-param searchServiceName string = ''
+param searchServiceName string  
 @description('The Azure Search SKU')
 param searchServiceSku string = 'basic'
 @description('The Azure Search connection name. If ommited will use a default value')
@@ -47,11 +58,11 @@ param searchConnectionName string = ''
 @description('The search index name')
 param aiSearchIndexName string = ''
 @description('The Azure Storage Account resource name. If ommited will be generated')
-param storageAccountName string = ''
+param storageAccountName string 
 @description('The Azure Storage Account SKU')
 param storageAccountSku string = 'Standard_LRS'
 @description('The log analytics workspace name. If ommited will be generated')
-param logAnalyticsWorkspaceName string = ''
+param logAnalyticsWorkspaceName string 
 @description('Type of the user or app to assign application roles')
 param principalTypeOverride string = 'User'
 @description('The runner principal id')
@@ -59,20 +70,22 @@ param principalId string = ''
 @description('Id of the user or app to assign application roles')
 param principalIdOverride string = principalId
 
+
+
 // Chat completion model
 @description('Format of the chat model to deploy')
 @allowed(['Microsoft', 'OpenAI'])
 param agentModelFormat string = 'OpenAI'
 @description('Name of agent to deploy')
-param agentName string = 'agent-template-assistant'
+param agentName string = 'FAQs-Agent'
 @description('(Deprecated) ID of agent to deploy')
 param aiAgentID string = ''
 @description('ID of the existing agent')
 param azureExistingAgentId string = ''
 @description('Name of the chat model to deploy')
-param agentModelName string = 'gpt-5-mini'
+param agentModelName string = 'gpt-5'
 @description('Name of the model deployment')
-param agentDeploymentName string = 'gpt-5-mini'
+param agentDeploymentName string = 'gpt-5'
 
 @description('Version of the chat model to deploy')
 // See version availability in this table:
@@ -116,10 +129,10 @@ param useApplicationInsights bool = true
 @description('Do we want to use the Azure Storage Account')
 param useStorageAccount bool = true
 @description('Do we want to use the Azure AI Search')
-param useSearchService bool = false
+param useSearchService bool = true
 
 @description('Do we want to use the Azure Monitor tracing')
-param enableAzureMonitorTracing bool = false
+param enableAzureMonitorTracing bool = true
 
 @description('Do we want to use the Azure Monitor tracing for GenAI content recording')
 param otelInstrumentationGenAICaptureMessageContent bool = false
@@ -147,6 +160,8 @@ var tags = { 'azd-env-name': environmentName }
 
 var tempAgentID = !empty(aiAgentID) ? aiAgentID : ''
 var agentID = !empty(azureExistingAgentId) ? azureExistingAgentId : tempAgentID
+
+
 
 var aiChatModel = [
   {
@@ -260,7 +275,12 @@ module logAnalytics 'core/monitor/loganalytics.bicep' = if (!empty(azureExisting
     name: logAnalyticsWorkspaceResolvedName
   }
 }
-var existingProjEndpoint = (!empty(azureExistingAIProjectResourceId) && !alwaysReprovision) ? format('https://{0}.services.ai.azure.com/api/projects/{1}',split(azureExistingAIProjectResourceId, '/')[8], split(azureExistingAIProjectResourceId, '/')[10]) : ''
+
+var isExistingProjectValid = !empty(azureExistingAIProjectResourceId) && !alwaysReprovision && length(split(azureExistingAIProjectResourceId, '/')) > 10
+
+var existingProjEndpoint = isExistingProjectValid 
+  ? format('https://{0}.services.ai.azure.com/api/projects/{1}', split(azureExistingAIProjectResourceId, '/')[8], split(azureExistingAIProjectResourceId, '/')[10]) 
+  : ''
 
 var projectResourceId = (!empty(azureExistingAIProjectResourceId) && !alwaysReprovision)
   ? azureExistingAIProjectResourceId
@@ -269,7 +289,6 @@ var projectResourceId = (!empty(azureExistingAIProjectResourceId) && !alwaysRepr
 var projectEndpoint = (!empty(azureExistingAIProjectResourceId) && !alwaysReprovision)
   ? existingProjEndpoint
   : ai!.outputs.aiProjectEndpoint
-
 var resolvedApplicationInsightsName = !useApplicationInsights || !empty(azureExistingAIProjectResourceId)
   ? ''
   : !empty(applicationInsightsName) ? applicationInsightsName : '${abbrs.insightsComponents}${resourceToken}'
@@ -304,14 +323,17 @@ module containerApps 'core/host/container-apps.bicep' = {
   name: 'container-apps'
   scope: rg
   params: {
-    name: 'app'
+    name: 'ninoapp'
     location: location
-    containerRegistryName: '${abbrs.containerRegistryRegistries}${resourceToken}'
     tags: tags
+    applicationInsightsName: resolvedApplicationInsightsName
+    containerRegistryName: '${abbrs.containerRegistryRegistries}${resourceToken}'
     containerAppsEnvironmentName: 'containerapps-env-${resourceToken}'
+    containerRegistryAdminUserEnabled: true        
     logAnalyticsWorkspaceName: empty(azureExistingAIProjectResourceId) || alwaysReprovision
       ? ai!.outputs.logAnalyticsWorkspaceName
       : logAnalytics!.outputs.name
+    
   }
 }
 
@@ -333,16 +355,26 @@ module api 'api.bicep' = {
     searchServiceEndpoint: searchServiceEndpoint_final
     embeddingDeploymentName: embeddingDeploymentName
     embeddingDeploymentDimensions: embeddingDeploymentDimensions
-    agentName: agentName
+    agentName: 'faqs-agent'
     agentID: agentID
     enableAzureMonitorTracing: enableAzureMonitorTracing
     otelInstrumentationGenAICaptureMessageContent: otelInstrumentationGenAICaptureMessageContent
-    projectEndpoint: projectEndpoint
+    projectEndpoint: 'https://foundry-resource-fall2026.services.ai.azure.com/api/projects/Project1'
     searchConnectionId: searchConnectionId_final
     storageAccountResourceId: storageAccountResourceId_final
     blobContainerName: blobContainerName
     useAzureAISearch: useSearchService
     useStorageAccount: useStorageAccount
+    extraEnv: [
+    {
+      name: 'AZURE_ALLOW_HTTP'
+      value: 'true'
+    }
+    
+  
+
+    
+  ]
   }
 }
 
@@ -518,6 +550,19 @@ module backendRoleAzureAIDeveloperRG 'core/security/role.bicep' = {
     roleDefinitionId: '64702f94-c441-49e6-a78b-ef80e0188fee'
   }
 }
+// Cosmos DB Data Contributor role definition ID
+var cosmosDataContributorId = '00000000-0000-0000-0000-000000000002'
+
+resource cosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-11-15' = {
+  name: guid(apiIdentity.id, 'CosmosDbDataContributor')
+  // Ensure the parent points to your existing Cosmos DB account resource name
+  parent: cosmosAccount 
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', 'nino-cosmodb', cosmosDataContributorId)
+    principalId: apiIdentity.properties.principalId // Binds to your API Container app footprint
+    scope: cosmosAccount.id
+  }
+}
 
 output AZURE_RESOURCE_GROUP string = rg.name
 
@@ -530,7 +575,7 @@ output AZURE_AI_EMBED_DEPLOYMENT_NAME string = embeddingDeploymentName
 output AZURE_AI_SEARCH_INDEX_NAME string = aiSearchIndexName
 output AZURE_AI_SEARCH_ENDPOINT string = searchServiceEndpoint_final
 output AZURE_AI_EMBED_DIMENSIONS string = embeddingDeploymentDimensions
-output AZURE_AI_AGENT_NAME string = agentName
+output AZURE_AI_AGENT_NAME string = 'FAQs-Agent'
 output AZURE_EXISTING_AGENT_ID string = agentID
 output AZURE_EXISTING_AIPROJECT_ENDPOINT string = projectEndpoint
 output ENABLE_AZURE_MONITOR_TRACING bool = enableAzureMonitorTracing

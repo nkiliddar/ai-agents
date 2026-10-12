@@ -62,7 +62,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     resource container 'containers' = [for container in containers: {
       name: container.name
       properties: {
-        publicAccess: contains(container, 'publicAccess') ? container.publicAccess : 'None'
+        publicAccess: contains(container, 'publicAccess') ? container.?publicAccess : 'None'
       }
     }]
   }
@@ -98,4 +98,4 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
 
 output id string = storage.id
 output name string = storage.name
-output primaryEndpoints object = storage.properties.primaryEndpoints
+output primaryEndpoints object = storage.?properties.?primaryEndpoints

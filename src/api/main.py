@@ -17,12 +17,13 @@ from util import get_env_file_path
 
 from logging_config import configure_logging
 
+AZURE_EXISTING_AGENT_ID="FAQs-Agent"
 enable_trace = False
 logger = None
 
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
-    agent_version_details = None
+    agent_version_details = "14"
     proj_endpoint = os.environ.get("AZURE_EXISTING_AIPROJECT_ENDPOINT")
     agent_id = os.environ.get("AZURE_EXISTING_AGENT_ID")    
     try:
@@ -53,7 +54,7 @@ async def lifespan(app: fastapi.FastAPI):
 
             if agent_id:
                 if agent_id.count(":") != 1:
-                    message = "AZURE_EXISTING_AGENT_ID must be in the format 'agent_name:agent_version'."
+                    message = " must be in the format 'agent_name:agent_version'."
                     message += f" (Environment from {env_file})"
                     raise RuntimeError(message)
                 try: 

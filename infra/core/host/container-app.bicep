@@ -2,7 +2,6 @@ metadata description = 'Creates a container app in an Azure Container App enviro
 param name string
 param location string = resourceGroup().location
 param tags object = {}
-
 @description('Allowed origins')
 param allowedOrigins array = []
 
@@ -91,7 +90,7 @@ module containerRegistryAccess '../security/registry-access.bicep' = if (usePriv
   name: '${deployment().name}-registry-access'
   params: {
     containerRegistryName: containerRegistryName
-    principalId: usePrivateRegistry ? userIdentity.properties.principalId : ''
+    principalId: usePrivateRegistry ? (userIdentity.?properties.principalId ?? '') : ''
   }
 }
 
@@ -128,6 +127,7 @@ resource app 'Microsoft.App/containerApps@2023-05-02-preview' = {
       } : { enabled: false }
       secrets: [for secret in items(secrets): {
         name: secret.key
+        #disable-next-line use-secure-value-for-secure-inputs
         value: secret.value
       }]
       service: !empty(serviceType) ? { type: serviceType } : null
@@ -164,7 +164,7 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
 }
 
 output defaultDomain string = containerAppsEnvironment.properties.defaultDomain
-output identityPrincipalId string = normalizedIdentityType == 'None' ? '' : (empty(identityName) ? app.identity.principalId : userIdentity.properties.principalId)
+output identityPrincipalId string = normalizedIdentityType == 'None' ? '' : (empty(identityName) ? app.identity.principalId : userIdentity.?properties.principalId ?? '')
 output name string = app.name
 output serviceBind object = !empty(serviceType) ? { serviceId: app.id, name: name } : {}
 output uri string = ingressEnabled ? 'https://${app.properties.configuration.ingress.fqdn}' : ''

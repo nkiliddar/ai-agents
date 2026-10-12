@@ -119,7 +119,7 @@ resource aiServicesDeployments 'Microsoft.CognitiveServices/accounts/deployments
   name: deployment.name
   properties: {
     model: deployment.model
-    raiPolicyName: contains(deployment, 'raiPolicyName') ? deployment.raiPolicyName : null
+    raiPolicyName: contains(deployment, 'raiPolicyName') ? deployment.?raiPolicyName : null
   }
   sku: contains(deployment, 'sku') ? deployment.sku : {
     name: 'Standard'
@@ -129,8 +129,8 @@ resource aiServicesDeployments 'Microsoft.CognitiveServices/accounts/deployments
 
 
 
-output endpoint string = account.properties.endpoint
-output endpoints object = account.properties.endpoints
+output endpoint string = account.?properties.endpoint
+output endpoints object = account.?properties.endpoints
 output id string = account.id
 output name string = account.name
 output projectResourceId string = aiProject.id

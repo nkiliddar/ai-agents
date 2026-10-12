@@ -98,7 +98,7 @@ module app 'container-app.bicep' = {
     secrets: secrets
     external: external
     env: env
-    imageName: !empty(imageName) ? imageName : exists ? existingApp.properties.template.containers[0].image : ''
+    imageName: !empty(imageName) ? imageName : exists ? existingApp.?properties.template.containers[0].image : ''
     targetPort: targetPort
     serviceBinds: serviceBinds
   }
