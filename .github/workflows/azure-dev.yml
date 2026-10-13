@@ -75,6 +75,8 @@ jobs:
         run: azd provision --no-prompt
         env:
           AZD_INITIAL_ENVIRONMENT_CONFIG: ${{ secrets.AZD_INITIAL_ENVIRONMENT_CONFIG }}
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 
       - name: Deploy Application
         run: azd deploy --no-prompt
