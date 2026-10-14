@@ -6,6 +6,11 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Mapping, Optional, Dict
+from azure.identity.aio import DefaultAzureCredential
+from azure.cosmos.aio import CosmosClient
+from azure.core.exceptions import AzureError
+from fastapi import APIRouter
+router = APIRouter()
 
 
 import fastapi
@@ -31,15 +36,22 @@ from urllib.parse import quote
 from openai import AsyncOpenAI
 from azure.cosmos.aio import CosmosClient
 from azure.cosmos import PartitionKey
+logger = logging.getLogger("azureaiapp")
+
+
+
 
 # Load configuration from environment variables
 COSMOS_ENDPOINT = os.environ["COSMOS_ENDPOINT"]
-COSMOS_KEY = os.environ["COSMOS_KEY"]
-COSMOS_DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "ChatDatabase")
-COSMOS_CONTAINER_NAME = os.environ.get("COSMOS_CONTAINER_NAME", "HistoryContainer")
+COSMOS_DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME")
+COSMOS_CONTAINER_NAME = os.environ.get("COSMOS_CONTAINER_NAME")
+
+credential = DefaultAzureCredential()
 
 # Create an async Cosmos Client
-cosmos_client = CosmosClient(COSMOS_ENDPOINT, credential=COSMOS_KEY)
+cosmos_client = CosmosClient(COSMOS_ENDPOINT, credential=credential)
+database = cosmos_client.get_database_client(COSMOS_DATABASE_NAME)
+container = database.get_container_client(COSMOS_CONTAINER_NAME)
 
 async def get_cosmos_container():
     """Helper to get or create the Cosmos DB database and container."""
@@ -50,6 +62,55 @@ async def get_cosmos_container():
     )
     return container
 
+
+
+@router.get("/api/circuit/{circuit_id}")
+async def get_circuit_details(circuit_id: str):
+    """
+    Retrieves full contextual details for a specific circuit ID keylessly 
+    via Managed Identity, extracting metrics, carriers, and address configurations.
+    """
+    try:
+        async with DefaultAzureCredential() as credential:
+            async with CosmosClient(url=COSMOS_ENDPOINT, credential=credential) as client:
+                database = client.get_database_client(COSMOS_DATABASE_NAME)
+                container = database.get_container_client(COSMOS_CONTAINER_NAME)
+                
+                # Query strictly filters by the unique circuit ID
+                query = "SELECT * FROM c WHERE c.circuit_id = @circuitId"
+                parameters = [{"name": "@circuitId", "value": circuit_id}]
+                
+                circuit_document = None
+                async for item in container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    enable_cross_partition_query=True
+                ):
+                    circuit_document = item
+                    break  # Circuit IDs are unique; we only need the first match
+                
+                if not circuit_document:
+                    raise HTTPException(status_code=404, detail=f"Circuit {circuit_id} not found.")
+                
+                # Extract specific properties safely with dictionary fallbacks
+                # This protects your UI if fields like 'info' are structured differently per vendor
+                info_block = circuit_document.get("info", {})
+                
+                return {
+                    "success": True,
+                    "circuit_id": circuit_document.get("circuit_id"),
+                    "customer_name": circuit_document.get("customer_name"),
+                    "billing_number": circuit_document.get("Billing_number"),
+                    "carrier": info_block.get("carrier", "Unknown"),
+                    "service_address": info_block.get("Service_Address", "Not Listed"),
+                    "metrics": info_block.get("metric", "N/A"),
+                    "interface_port": info_block.get("interface"),
+                    "support_phone": info_block.get("phone_number")
+                }
+                
+    except AzureError as ae:
+        logger.error(f"Cosmos DB data-plane lookup fault: {ae}")
+        raise HTTPException(status_code=500, detail="Database communication failure.")
 # Create a logger for this module
 logger = logging.getLogger("azureaiapp")
 

@@ -157,8 +157,21 @@
     },
     "blobContainerName": {
       "value": "faqs"
+    },
+    "cosmosEndpointUri": {
+      "value": "https://nino-cosmodb.documents.azure.com:443/"
+    },
+
+    "cosmosAccountResourceId": {
+      "value": "/subscriptions/e6cb7e09-0b5c-480a-834a-a0f9eb6a5209/resourceGroups/existing-Foundry/providers/Microsoft.DocumentDB/databaseAccounts/nino-cosmodb"
+    },
+    "cosmosDatabaseName": {
+      "value": "circuit-db"
+    },
+    "cosmosContainerName": {
+      "value": "circuit_id"
     }
- 
-    
+
   }
 }
+

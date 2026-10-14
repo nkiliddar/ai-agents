@@ -184,6 +184,16 @@ async def create_ai_search_tool_maybe(
         logger.error(f"Failed to get Blob Storage connection: {e}")
         return None
     
+    # Get Cosmos DB Connection
+    try:
+        cosmos_connection = await ai_client.connections.get_default(
+            connection_type=ConnectionType.AZURE_COSMOS_DB,
+            include_credentials=True)
+    except ValueError as e:
+        logger.error(f"failed to get Cosmos DB connection: {e}")
+        return None    
+        
+    
     # Get connection string from STORAGE_ACCOUNT_RESOURCE_ID
     storage_account_resource_id = os.getenv("STORAGE_ACCOUNT_RESOURCE_ID")
     if not storage_account_resource_id:
@@ -191,10 +201,21 @@ async def create_ai_search_tool_maybe(
         return None
     
     connection_string = f"ResourceId={storage_account_resource_id};"
+
+    # Get connection details for cosmos DB
+    cosmos_resource_id = os.getenv("COSMOS_ACCOUNT_RESOURCE_ID")
+    cosmos_database_name = os.getenv("COSMOS_DATABASE_NAME", "circuit-db")
+    cosmos_container_name = os.getenv("COSMOS_CONTAINER_NAME", "circuit_id")
+    if not cosmos_resource_id:
+        logger.error("Missing required environment variable: COSMOS_ACCOUNT_RESOURCE_ID")
+        return None
+
+    cosmos_connection_string = f"ResourceId={cosmos_resource_id};Database={cosmos_database_name};Container={cosmos_container_name};"
     
     # Sanitize index name for resource naming
     sanitized_name = search_index_name.lower().replace("_", "-")
     datasource_name = f"{sanitized_name}-datasource"
+    cosmos_datasource_name = f"{sanitized_name}-cosmos-datasource"
     skillset_name = f"{sanitized_name}-skillset"
     # Define steps in execution order
     steps_order = [
@@ -202,9 +223,11 @@ async def create_ai_search_tool_maybe(
         "blob_upload",
         "search_index",
         "search_datasource",
+        "cosmos_datasource",
         "search_skillset",
         "indexer_markdown",
         "indexer_documents",
+        "indexer_cosmos",
     ]
     
     resources = {}
@@ -247,8 +270,15 @@ async def create_ai_search_tool_maybe(
         )
     
     await execute_step("search_datasource", datasource_step, resources, steps_order)
-    
-    # Step 5: Create skillset
+    # Create Cosmos DB datastore
+    async def cosmos_datasource_Setep():
+        return await search_mgr.create_datasource_maybe(
+            datasource_name=cosmos_datasource_name,
+            container_name=cosmos_container_name,
+            connection_string=cosmos_connection_string,
+            datasource_type="cosmosdb"
+        )
+    # Step 6: Create skillset
     async def skillset_step():
         return await search_mgr.create_skillset_maybe(
             skillset_name=skillset_name,
@@ -257,7 +287,7 @@ async def create_ai_search_tool_maybe(
     
     await execute_step("search_skillset", skillset_step, resources, steps_order)
     
-    # Step 6: Create Markdown indexer
+    # Step 7: Create Markdown indexer
     async def markdown_indexer_step():
         return await search_mgr.create_indexer_maybe(
             indexer_name=f"{sanitized_name}-markdown-indexer",
@@ -270,7 +300,7 @@ async def create_ai_search_tool_maybe(
     
     await execute_step("indexer_markdown", markdown_indexer_step, resources, steps_order)
     
-    # Step 7: Create Documents indexer
+    # Step 8: Create Documents indexer
     async def documents_indexer_step():
         return await search_mgr.create_indexer_maybe(
             indexer_name=f"{sanitized_name}-documents-indexer",
@@ -282,6 +312,19 @@ async def create_ai_search_tool_maybe(
         )
     
     await execute_step("indexer_documents", documents_indexer_step, resources, steps_order)
+
+    # step 9 Create Cosmos DB Indexer mapping to the same index
+    async def cosmos_indexer_step():
+        return await search_mgr.create_indexer_maybe(
+            indexer_name=f"{sanitized_name}-cosmos-indexer",
+            datasource_name=cosmos_datasource_name,
+            target_index_name=search_index_name,
+            skillset_name=skillset_name,
+            parsing_mode="default" # Or your custom parsing logic for JSON documents
+        )
+        
+    await execute_step("indexer_cosmos", cosmos_indexer_step, resources, steps_order)
+
     
     # Check if all steps succeeded
     all_succeeded = all(s != ResourceStatus.FAILED for s in resources.values())

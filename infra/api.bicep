@@ -22,6 +22,17 @@ param storageAccountResourceId string = ''
 param blobContainerName string = ''
 param useAzureAISearch bool = false
 param useStorageAccount bool = true
+@description('The resource ID of the existing Cosmos DB Account')
+param cosmosAccountResourceId string = ''
+
+@description('The name of the Cosmos DB database')
+param cosmosDatabaseName string = ''
+
+@description('The name of the Cosmos DB SQL API container')
+param cosmosContainerName string = ''
+
+@description('Determines whether to attach and index the Cosmos DB data source')
+param useCosmosDB bool = false
 
 @description('Extra environment variables passed from main.bicep')
 param extraEnv array = []
@@ -111,8 +122,27 @@ var storageEnv = [
     name: 'USE_STORAGE_ACCOUNT'
     value: string(useStorageAccount)
   }
-
+  {
+    name: 'COSMOS_ENDPOINT'
+    value: cosmosEndpointUri
+  }
+  {
+    name: 'COSMOS_ACCOUNT_RESOURCE_ID'
+    value: cosmosAccountResourceId
+  }
+  {
+    name: 'COSMOS_DATABASE_NAME'
+    value: cosmosDatabaseName
+  }
+  {
+    name: 'COSMOS_CONTAINER_NAME'
+    value: cosmosContainerName
+  }
+  
 ]
+
+var cosmosAccountName = last(split(cosmosAccountResourceId, '/'))
+var cosmosEndpointUri = 'https://${cosmosAccountName}://'
 
 var calculatedEnv = concat(baseEnv, useStorageAccount ? storageEnv : [
   {

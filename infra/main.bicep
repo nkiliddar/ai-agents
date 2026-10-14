@@ -149,6 +149,18 @@ param searchConnectionId string = ''
 param blobContainerName string = 'documents'
 param alwaysReprovision bool = false
 
+@description('The name of the Cosmos DB database')
+param cosmosDatabaseName string = 'circuit-db'
+
+@description('The name of the Cosmos DB SQL API container')
+param cosmosContainerName string = 'circuit_id'
+
+@description('The resource ID of the existing Cosmos DB Account')
+param cosmosAccountResourceId string = '/subscriptions/e6cb7e09-0b5c-480a-834a-a0f9eb6a5209/resourceGroups/existing-Foundry/providers/Microsoft.DocumentDB/databaseAccounts/nino-cosmodb'
+
+@description('Determines whether to attach and index the Cosmos DB data source')
+param useCosmosDB bool = true
+
 var abbrs = loadJsonContent('./abbreviations.json')
 
 var resourceToken = templateValidationMode? toLower(uniqueString(subscription().id, environmentName, location, seed)) :  toLower(uniqueString(subscription().id, environmentName, location))
@@ -316,6 +328,10 @@ module userRoleAzureAIDeveloperBackendExistingProjectRG 'core/security/role.bice
     roleDefinitionId: '64702f94-c441-49e6-a78b-ef80e0188fee' 
   }
 }
+// Cosmos DB SQL Role Definition ID for explicit Data Read/Write access
+var cosmosDataContributorRoleDefinitionId = subscriptionResourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', last(split(cosmosAccountResourceId, '/')), '00000000-0000-0000-0000-000000000002')
+
+
 
 //Container apps host and api
 // Container apps host (including container registry)
@@ -342,7 +358,7 @@ module api 'api.bicep' = {
   name: 'api'
   scope: rg
   params: {
-    name: 'ca-api-${resourceToken}'
+    name: 'ca-api-${resourceToken}-nino'
     location: location
     tags: tags
     identityName: '${abbrs.managedIdentityUserAssignedIdentities}api-${resourceToken}'
@@ -365,6 +381,10 @@ module api 'api.bicep' = {
     blobContainerName: blobContainerName
     useAzureAISearch: useSearchService
     useStorageAccount: useStorageAccount
+    useCosmosDB: useCosmosDB
+    cosmosAccountResourceId: cosmosAccountResourceId
+    cosmosDatabaseName: cosmosDatabaseName
+    cosmosContainerName: cosmosContainerName
     extraEnv: [
     {
       name: 'AZURE_ALLOW_HTTP'
@@ -550,9 +570,49 @@ module backendRoleAzureAIDeveloperRG 'core/security/role.bicep' = {
     roleDefinitionId: '64702f94-c441-49e6-a78b-ef80e0188fee'
   }
 }
+module backendRoleCosmosContributorRG 'core/security/role.bicep' = if (useSearchService && useCosmosDB) {
+  name: 'backend-role-cosmos-contributor-rg'
+  scope: rg
+  params: {
+    principalType: 'ServicePrincipal'
+    principalId: api.outputs.SERVICE_API_IDENTITY_PRINCIPAL_ID
+    roleDefinitionId: 'fbdf93bf-df7d-4616-9b2d-ab67b38dbe6f' // DocumentDB Account Contributor
+  }
+}
+
+// User Principal (Local Dev CLI) Access to Cosmos DB
+module userRoleCosmosContributorRG 'core/security/role.bicep' = if (useSearchService && useCosmosDB) {
+  name: 'user-role-cosmos-contributor-rg'
+  scope: rg
+  params: {
+    principalType: principalTypeOverride
+    principalId: principalIdOverride
+    roleDefinitionId: 'fbdf93bf-df7d-4616-9b2d-ab67b38dbe6f' // DocumentDB Account Contributor
+  }
+}
+// Extract Cosmos Account Name cleanly from the Resource ID parameter
+var clearCosmosAccountNameString = !empty(cosmosAccountResourceId) ? last(split(cosmosAccountResourceId, '/')) : 'nino-cosmodb'
+
+// Fix BCP139 & ResourceNotFound: Call the module while forcing the scope straight to the separate 'Foundry' resource group
+module cosmosRoleAssignmentModule 'cosmos-role.bicep' = if (useCosmosDB) {
+  name: 'cosmos-sql-data-role-assignment'
+  scope: resourceGroup('Foundry') // Redirects the module out of 'existing-Foundry' straight into 'Foundry'
+  params: {
+    cosmosAccountResourceId: cosmosAccountResourceId
+    principalId: api.outputs.SERVICE_API_IDENTITY_PRINCIPAL_ID
+  }
+}
+
+// Single, clean set of definitive environment outputs
+output USE_COSMOS_DB bool = useCosmosDB
+output COSMOS_ACCOUNT_RESOURCE_ID string = useCosmosDB ? cosmosAccountResourceId : ''
+output COSMOS_DATABASE_NAME string = useCosmosDB ? cosmosDatabaseName : ''
+output COSMOS_CONTAINER_NAME string = useCosmosDB ? cosmosContainerName : ''
+output COSMOS_ENDPOINT string = useCosmosDB ? 'https://${clearCosmosAccountNameString}://' : ''
 
 
-output AZURE_RESOURCE_GROUP string = rg.name
+
+
 
 // Outputs required for local development server
 output AZURE_TENANT_ID string = tenant().tenantId
